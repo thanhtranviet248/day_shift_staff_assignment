@@ -1,48 +1,90 @@
 # Factory Staff Assignment Optimization
 
-This project implements a mixed-integer linear programming (MILP) model to optimize weekly staff assignment in a three-shift manufacturing environment using Gurobi in Python. The model assigns workers to days and shifts such that shift-specific labor demands are satisfied while respecting individual working-time regulations and minimizing total labor utilization.
+A small mixed-integer linear programming (MILP) model, solved with **Gurobi** in Python, that builds a weekly roster for a factory running **3 shifts a day, 7 days a week** with a pool of **20 workers**. The model assigns workers to day–shift slots so that every shift's demand is met exactly while respecting basic labor rules.
 
-## 1. Problem description
+## Repository contents
 
-We consider a factory operating 7 days per week with 3 shifts per day (morning, afternoon, evening). For each day–shift pair, a required number of workers is given (e.g., Monday: $(6,4,3)$; Tuesday: $(5,5,5)$; Wednesday: $(6,4,4)$; Thursday: $(5,5,5)$; Friday: $(5,5,3)$; Saturday: $(6,5,4)$; Sunday: $(5,5,4)$), and the total workforce size is 20 workers.
+| File | Description |
+| --- | --- |
+| [staff_assignment.ipynb](staff_assignment.ipynb) | Notebook with input data, model, solve, and CSV export |
+| [staff_assignment.csv](staff_assignment.csv) | Solved roster: one row per worker per day (`Staff, Day, Shift, Status`) |
 
-Each worker is subject to the following rules: 
+## 1. Problem
 
-- A worker can work at most one shift per day.
-- Each worker must have at least 2 leave days per week (i.e., at most 5 working days).
-- If a worker works the evening shift on day $j$, they are not allowed to work the morning shift on day $j+1$.
-- The planning task is to assign workers to day–shift positions such that all daily shift demands are met and the total number of worker–shift assignments is minimized while complying with these labor constraints.
+Shift demand (number of workers needed):
+
+| Day | Morning | Afternoon | Evening | Total |
+| --- | :---: | :---: | :---: | :---: |
+| Monday | 6 | 4 | 3 | 13 |
+| Tuesday | 5 | 5 | 5 | 15 |
+| Wednesday | 6 | 4 | 4 | 14 |
+| Thursday | 5 | 5 | 5 | 15 |
+| Friday | 5 | 5 | 3 | 13 |
+| Saturday | 6 | 5 | 4 | 15 |
+| Sunday | 5 | 5 | 4 | 14 |
+| **Week** | | | | **99** |
+
+Labor rules for each worker:
+
+- At most one shift per day.
+- At least 2 days off per week (i.e. at most 5 working days).
+- No evening shift on day $j$ followed by a morning shift on day $j+1$.
 
 ## 2. Mathematical formulation
 
-### 2.1 Sets and indices
+**Sets**
 
-We define the following sets:
+- Workers $I = \{1,\dots,20\}$, days $J = \{1,\dots,7\}$, shifts $K = \{1,2,3\}$ (morning, afternoon, evening).
 
-- The set of workers is $I = \{1,2,\dots,20\}$.
-- The set of days in the planning horizon is $J = \{1,2,\dots,7\}$.
-- The set of shifts per day is $K = \{1,2,3\}$ (for example, $1$ = morning, $2$ = afternoon, $3$ = evening).
-- Indices $i \in I$, $j \in J$, and $k \in K$ denote, respectively, a worker, a day, and a shift.
+**Parameters**
 
-### 2.2 Parameters
+- $d_{jk}$: required number of workers on day $j$, shift $k$.
 
-The parameter $d_{jk}$ denotes the required number of workers on day $j$ in shift $k$ for all $j \in J, k \in K$. These values are derived from the production plan for the week.
+**Decision variables**
 
-### 2.3 Decision variable
+- $x_{ijk} \in \{0,1\}$: 1 if worker $i$ works day $j$, shift $k$.
 
-The binary decision variable $x_{ijk}$ indicates whether worker $i$ is assigned to day $j$ in shift $k$, that is $x_{ijk} \in \{0,1\}$ for all $i \in I, j \in J, k \in K$.
+**Objective**
 
-### 2.4 Objective function
+$$\min \sum_{i \in I} \sum_{j \in J} \sum_{k \in K} x_{ijk}$$
 
-The objective is to minimize the total number of worker–shift assignments over the planning horizon, given by \$\min \sum_{i \in I} \sum_{j \in J} \sum_{k \in K} x_{ijk}.$
+**Constraints**
 
+| Rule | Constraint |
+| --- | --- |
+| Demand met exactly | $\sum_{i \in I} x_{ijk} = d_{jk} \quad \forall j, k$ |
+| One shift per day | $\sum_{k \in K} x_{ijk} \le 1 \quad \forall i, j$ |
+| ≤ 5 working days per week | $\sum_{j \in J}\sum_{k \in K} x_{ijk} \le 5 \quad \forall i$ |
+| No evening → next morning | $x_{ij3} + x_{i,j+1,1} \le 1 \quad \forall i,\ j = 1,\dots,6$ |
 
-### 2.5 Constraints
+Because each worker works at most one shift per day, the weekly limit on assignments is equivalent to "at most 5 working days", i.e. at least 2 days off.
 
-The model includes the following types of constraints:
+## 3. Implementation
 
-- Demand satisfaction requires that, for each day–shift pair $(j,k)$, the number of assigned workers equals the required demand, i.e. $\sum_{i \in I} x_{ijk} = d_{jk} \text{ for all } j \in J, k \in K.$
-- Daily workload constraints ensure that each worker can work at most one shift per day, i.e. $\sum_{k \in K} x_{ijk} \le 1 \text{ for all } i \in I, j \in J.$
-- Weekly workload constraints limit each worker to at most 5 working days per week, which in this setting is equivalent to $\sum_{j \in J} \sum_{k \in K} x_{ijk} \le 5 \text{ for all } i \in I.$
-- Rest-period constraints prohibit an evening-to-morning consecutive shift for the same worker, enforced by $x_{ij3} + x_{i(j+1)1} \le 1 \text{ for all } i \in I, j \in \{1,2,3,4,5,6\}.$
-- Integrality conditions require $x_{ijk} \in \{0,1\} \text{ for all } i \in I, j \in J, k \in K.$
+The notebook follows four steps:
+
+1. **Input data** – sizes `I = 20`, `J = 7`, `K = 3` and the `demand[j][k]` matrix.
+2. **Model** – `x = model.addVars(I, J, K, vtype=GRB.BINARY)`, the objective, and the four constraint families above (indices are 0-based in code, so evening = `2`, morning = `0`).
+3. **Solve** – `model.optimize()`.
+4. **Export** – if optimal, every (worker, day) pair is written to `staff_assignment.csv` with either the assigned shift or `N/A / Leave`.
+
+## 4. Results
+
+- Model size: 420 binary variables, 301 constraints.
+- Gurobi finds an optimal solution at the root (gap 0%) in a fraction of a second.
+- Total assignments: **99**. Worker 1 works 4 days; the other 19 workers work 5 days each.
+
+## 5. Notes on the model
+
+- **The objective is effectively constant.** The demand constraints are equalities, so the sum of all $x_{ijk}$ is always $\sum d_{jk} = 99$. Every feasible roster is "optimal", and the model is really a feasibility problem. To make the optimization meaningful, you could e.g. change demand to $\ge d_{jk}$ (allowing overstaffing) and minimize total assignments, or add costs/preferences such as penalizing evening shifts, balancing workload, or rewarding consecutive days off.
+- **Capacity is tight.** 20 workers × 5 days = 100 possible assignments against a demand of 99, so there is only one spare slot. Higher demand or fewer workers quickly makes the model infeasible.
+- **Single-week horizon.** The rest rule does not wrap from Sunday evening to Monday morning. For a repeating weekly roster, add $x_{i,7,3} + x_{i,1,1} \le 1$.
+- **No fairness rules.** The model does not control how evening shifts or weekends are spread among workers, or whether days off are consecutive.
+
+## 6. Running
+
+```bash
+pip install gurobipy pandas
+```
+
+Open `staff_assignment.ipynb` (originally run on Google Colab) and run all cells. The pip-installed Gurobi comes with a restricted size-limited license, which is enough for this model.
