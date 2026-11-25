@@ -1,4 +1,4 @@
-# Factory Staff Assignment
+# Day-Shift-Staff Assignment
 
 A small mixed-integer linear programming (MILP) model, solved with **Gurobi** in Python, that builds a weekly roster for a factory running **3 shifts a day, 7 days a week** with a pool of **20 workers**. The model assigns workers to day–shift slots so that every shift's demand is met exactly while respecting basic labor rules.
 
